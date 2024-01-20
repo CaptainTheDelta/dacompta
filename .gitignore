@@ -1,0 +1,8 @@
+*/__pycache__/
+TODO.md
+
+datacompta.sqlite3
+scripts/data_injection.sql
+tests.py
+pdf.txt
+rules/*
