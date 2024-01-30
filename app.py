@@ -72,13 +72,37 @@ sogep_scan(accounts_files, con, 10)
 
 # pour chaque fichier de règles, application.
 rules_path = config["rules"]["path"]
+rules = []
 
-def apply_rules(field):
-    if field:
-        for correction,pattern,regex in rules:
-            if (regex == 'regex' and re.search(pattern, field)) or field.startswith(pattern):
-                return correction
-    return field
+criterion_func = {
+    "equals": lambda p,v: p == v,
+    "startswith": lambda p,v: isinstance(v, str) and v.startswith(p),
+    "endswith": lambda p,v: isinstance(v, str) and v.endswith(p),
+    "regex": lambda p,v: isinstance(v, str) and re.search(p,v) != None,
+}
+
+def check_criterion(value, pattern, method):
+    if method not in criterion_func:
+        return False
+    return criterion_func[method](pattern,value)
+
+def apply_rules(to_value, *from_values):
+    for rule in rules:
+        crits = [check_criterion(v, *c) for v,c in zip(from_values, rule[1])]
+        
+        if all(crits):
+            value,method = rule[0]
+            if method == "set":
+                return value
+            elif method == "begin":
+                return f"{value}{to_value if to_value != None else ''}"
+            elif method == "end":
+                return f"{to_value if to_value != None else ''}{value}"
+    
+    return to_value
+
+
+con.create_function("apply_rules", -1, apply_rules)
 
 for file in os.listdir(rules_path):
     p = os.path.join(rules_path,file)
@@ -86,12 +110,16 @@ for file in os.listdir(rules_path):
         with open(p, encoding="utf-8-sig") as csv_file:
             csv_reader = csv.reader(csv_file, delimiter=';')
             header = next(csv_reader)
-            rules = list(csv_reader)
-            con.create_function("apply_rules", 1, apply_rules)
+            n = len(header)
+            rules = []
+            
+            for line in csv_reader:
+                crits =  [tuple(line[i:i+2]) for i in range(2,n,2)]
+                rules.append((tuple(line[:2]), crits))
             
             field_to = header[0]
-            field_from = header[1]
-            rules_sql = f"UPDATE operation SET {field_to}=apply_rules({field_from})"
+            fields_from = ','.join(header[2::2])
+            rules_sql = f"UPDATE operation SET {field_to}=apply_rules({field_to},{fields_from})"
             cur.execute(rules_sql)
             con.commit()
             

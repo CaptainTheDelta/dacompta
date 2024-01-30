@@ -7,15 +7,17 @@ This may or may not be the ~third~ fourth time that I start over the project.
 ## Rules CSV
 Situtated in the `rules` folder, looking like :
 ```
-value;pattern;regex
-AMAZON;AMAZON ;
-Damien Lesecq;(M. )?DAMIEN LESECQ;1
-O'TACOS;(?i)O ?tacos;1
-SNCF;^(GARE )?SNCF;1
+value;method;pattern;method
+AMAZON;set;AMAZON ;startswith
+Damien Lesecq;set;(M. )?DAMIEN LESECQ;regex
+O'TACOS;set;(?i)O ?tacos;regex
+SNCF;set;^(GARE )?SNCF;regex
 ```
 with :
-* `value`: the value to replace with;
+* `value`: the value used at the end;
+* `method` (first one): `set`, `begin`, `end`
 * `pattern`: string or regex;
-* `regex`: indicates if `pattern` is a string or a regex.
+* `method`: `equals`, `startswith`, `endswith` or `regex` (will perform a `re.search`).
 
-If `pattern` is a string, dacompta will test the field to check if it begins with it, if it is a regex, dacompta will search for a match. 
+New CSV files are allowed to use multiple criterias :
+```value;method;pattern;method;pattern;method```
