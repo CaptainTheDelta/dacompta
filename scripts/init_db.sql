@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS operation
     label TEXT,
     amount FLOAT NOT NULL,
     currency TEXT,
+    category TEXT,
     source INT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS category

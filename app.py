@@ -81,6 +81,14 @@ criterion_func = {
     "regex": lambda p,v: isinstance(v, str) and re.search(p,v) != None,
 }
 
+processing_func = {
+    "set": lambda p,v: p,
+    "before": lambda p,v: f"{p}{v if v != None else ''}",
+    "after": lambda p,v: f"{v if v != None else ''}{p}",
+    "replace": lambda p,v: v.replace(*p.split("|")),
+    "re_replace": lambda p,v: re.sub(*p.split("|"),v),
+}
+
 def check_criterion(value, pattern, method):
     if method not in criterion_func:
         return False
@@ -92,12 +100,9 @@ def apply_rules(to_value, *from_values):
         
         if all(crits):
             value,method = rule[0]
-            if method == "set":
-                return value
-            elif method == "begin":
-                return f"{value}{to_value if to_value != None else ''}"
-            elif method == "end":
-                return f"{to_value if to_value != None else ''}{value}"
+            new_value = processing_func[method](value, to_value)
+            if new_value != to_value:
+                return new_value 
     
     return to_value
 
@@ -124,3 +129,52 @@ for file in os.listdir(rules_path):
             con.commit()
             
             logging.info(f"rules applied ({file})")
+
+#--------------------------------- Catégories ---------------------------------
+# Même chose mais avec les catégories
+
+category_rules_path = os.path.join(rules_path, "categories")
+
+for file in os.listdir(category_rules_path):
+    p = os.path.join(category_rules_path,file)
+    if os.path.isfile(p):
+        with open(p, encoding="utf-8-sig") as csv_file:
+            csv_reader = csv.reader(csv_file, delimiter=';')
+            header = next(csv_reader)
+            n = len(header)
+            rules = []
+            
+            for line in csv_reader:
+                crits =  [tuple(line[i:i+2]) for i in range(2,n,2)]
+                rules.append((tuple(line[:2]), crits))
+            
+            field_to = header[0]
+            fields_from = ','.join(header[2::2])
+            rules_sql = f"UPDATE operation SET {field_to}=apply_rules({field_to},{fields_from})"
+            cur.execute(rules_sql)
+            con.commit()
+            
+            logging.info(f"categories applied ({file})")
+
+# Banque/Mouvements : mouvements d'argent entre deux comptes perso
+re_ref = re.compile(r"(?m)(?:VIR RECU|REF:) (?P<ref>\d*)")
+ops = cur.execute("SELECT rowid,motif FROM operation WHERE category IS NULL AND payee = 'Damien Lesecq'").fetchall()
+
+ref_table = []
+for rowid,motif in ops:
+    ref = re_ref.search(motif)
+    if ref != None:
+        ref_table.append((rowid, ref.group("ref"), motif))
+
+ref_set = []
+for rt in ref_table:
+    for rs in ref_set:
+        if rt[1] == rs[1]:
+            cur.execute(f"UPDATE operation SET category='Banque/Mouvements' WHERE rowid={rt[0]}")
+            cur.execute(f"UPDATE operation SET category='Banque/Mouvements' WHERE rowid={rs[0]}")
+            break
+    else:
+        ref_set.append(rt)
+
+con.commit()
+logging.info("double operations marked")
