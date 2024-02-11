@@ -43,14 +43,16 @@ re_motif = [
     re_motif_vir2,
 ]
 
-re_motif_sogep_fee = re.compile(r"^(FRAIS|COMMISSION D'INTERVENTION|COTISATION JAZZ|INTERETS|LETTRE INFO)")
+re_motif_sogep_fee = re.compile(r"^(FRAIS|COMMISSION D'INTERVENTION|LETTRE INFO)")
 re_motif_sogep_interest = re.compile(r"^INTERETS")
+re_motif_sogep_cotisation = re.compile(r"^COTISATION JAZZ")
 re_motif_sogep_gab = re.compile(r"^VRST GAB")
 re_motif_sogep_dab = re.compile(r"^CARTE X\d{4} RETRAIT DAB")
 
 sogep_specials = {
-    re_motif_sogep_fee: "Frais",
+    re_motif_sogep_fee: "Frais bancaires",
     re_motif_sogep_interest: "Intérêts",
+    re_motif_sogep_cotisation: "COTISATION JAZZ -25 ANS -50%",
     re_motif_sogep_gab: "Dépôt GAB"
 }
 
@@ -173,7 +175,7 @@ def scan_files(accounts_files, connection, n):
         
         ops_insert_sql = f"""
         INSERT INTO operation 
-        VALUES(:date, :payee, :motif, :label, :amount, 'EUR', {source_id})"""
+        VALUES(:date, :payee, :motif, :label, :amount, 'EUR', NULL, {source_id})"""
         cursor.executemany(ops_insert_sql, ops)
         logging.info("[%d: %d/%d] %s -> %d ops" % (n, i+1, len(accounts_files), filename, len(ops)))
     connection.commit()
