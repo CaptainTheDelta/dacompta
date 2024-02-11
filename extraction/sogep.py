@@ -56,23 +56,24 @@ sogep_specials = {
     re_motif_sogep_gab: "Dépôt GAB"
 }
 
-
-def scan_file(path):
+def scan(account_id, path):
     text = gettext(path)
     endpage = ""
     pages = text.split(endpage)
 
     # obtention des différentes dates du fichier
-    file_dates = {
+    file_info = {
+        'account': account_id,
         'date_scanned': datetime.now(),
         'date_begin': None,
         'date_end': None,
+        'path': os.path.basename(path),
     }
     for line in pages[0].splitlines():
         d = re_dates.search(line)
         if d != None:
-            file_dates['date_begin'] = d.groupdict().get('date_begin')
-            file_dates['date_end'] = d.groupdict().get('date_end')
+            file_info['date_begin'] = d.groupdict().get('date_begin')
+            file_info['date_end'] = d.groupdict().get('date_end')
             break
 
     ops = []
@@ -131,6 +132,7 @@ def scan_file(path):
             motif = motif.strip("\n")
             
             op = {
+                'currency': "EUR",
                 'date': date,
                 'payee': None,
                 'motif': motif,
@@ -154,62 +156,5 @@ def scan_file(path):
                     op['payee'] = "Société Générale"
                     op['label'] = sogep_specials[re_m]
 
-            # if op['label'] == None:
-            #     with open("fail.txt", 'a') as file:
-            #         file.write('\n'.join(['', path, motif]))
-
             ops.append(op)
-    return file_dates, ops
-
-def scan_files(accounts_files, connection, n):
-    cursor = connection.cursor()
-    for i,(account_id, path, filename) in enumerate(accounts_files):
-        file_info, ops = scan_file(path)
-        file_info |= { 'path': filename, 'account': account_id}
-        
-        source_insert_sql = """
-        INSERT INTO source_file 
-        VALUES(:date_begin, :date_end, :date_scanned, :path, :account) 
-        RETURNING rowid"""
-        (source_id,) = cursor.execute(source_insert_sql, file_info).fetchone()
-        
-        ops_insert_sql = f"""
-        INSERT INTO operation 
-        VALUES(:date, :payee, :motif, :label, :amount, 'EUR', NULL, {source_id})"""
-        cursor.executemany(ops_insert_sql, ops)
-        logging.info("[%d: %d/%d] %s -> %d ops" % (n, i+1, len(accounts_files), filename, len(ops)))
-    connection.commit()
-
-def scan(accounts_files, connection, n_threads=5):
-    """ accounts_files = [
-        [account_id, folder, [files]],
-        ...
-    ]
-    """
-    to_scan = []
-    sizes = []
-    for account_id, folder, files in accounts_files:
-        for filename in files:
-            path = os.path.join(folder, filename)
-            to_scan.append([account_id, path, filename])
-            sizes.append(os.path.getsize(path))
-
-    threads_repartition = [[]]
-    size_cap = sum(sizes) / n_threads
-    current_size = 0
-
-    for s,ts in zip(sizes,to_scan):
-        if current_size > size_cap:
-            threads_repartition.append([])
-            current_size = 0
-        threads_repartition[-1].append(ts)
-        current_size += s
-
-    threads = []
-    for i,files in enumerate(threads_repartition):
-        t = threading.Thread(target=scan_files, args=(files, connection, i))
-        threads.append(t)
-        t.start()
-
-    for t in threads:
-        t.join()
+    return file_info, ops

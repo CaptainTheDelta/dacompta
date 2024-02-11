@@ -35,9 +35,9 @@ if True:
 
 accounts_folder_sql = "SELECT rowid,name,bank,folder FROM account"
 accounts_folder = cur.execute(accounts_folder_sql).fetchall()
-not_scanned_files = []
+not_scanned_files = [] # (bank, account_id, fullpath)
 
-for account_id,name,_,path in accounts_folder:
+for account_id,name,bank,path in accounts_folder:
     # récupérer les fichiers enregistrés
     scanned_files_sql = f"SELECT path FROM source_file WHERE account={account_id}"
     scanned_files = cur.execute(scanned_files_sql).fetchall()
@@ -45,28 +45,110 @@ for account_id,name,_,path in accounts_folder:
     
     # récupérer les fichiers non scannés
     not_scanned = []
-    for file in os.listdir(path):
-        p = os.path.join(path,file)
-        if os.path.isfile(p) and file not in scanned_files:
-            not_scanned.append(file)
-
-    not_scanned_files.append(not_scanned)
+    for filename in os.listdir(path):
+        n_file = 0
+        p = os.path.join(path,filename)
+        if os.path.isfile(p) and filename not in scanned_files:
+            n_file += 1
+            not_scanned_files.append((bank, account_id, p))
     
-    if len(not_scanned):
-        logging.info(f"{name} ({len(not_scanned)} files not scanned)")
+    if n_file:
+        logging.info(f"{name} ({n_file} files not scanned)")
 
 #------------------------ appel des fonctions de scan -------------------------
 
+#   __main__  ------+
+#      |            |
+#      | fichiers   |
+#      v            |
+#  Extractor        | fichiers à traiter
+#      |            |
+#      | résultats  |
+#      v            |
+#  Réception  <-----+
+
+# Pour chaque fichier :
+# Extractor <- filepath & fonction à appeler (donc banque)
+# Réception <- info_fichier + account_id + path & ops
+
 from extraction.sogep import scan as sogep_scan
+import queue
 import threading
 
-accounts_files = []
+scan_functions = {
+    "Société Générale": sogep_scan,
+}
 
-for (account_id,_,bank,folder),(files) in zip(accounts_folder,not_scanned_files):
-    if bank == "Société Générale":
-        accounts_files.append([account_id, folder, files])
+class Extractor(threading.Thread):
+    def __init__(self, files_queue, ops_queue):
+        self.files_q = files_queue
+        self.ops_q = ops_queue
+        super().__init__()
+      
+    def run(self):
+        while True:
+            try:
+                file = self.files_q.get(timeout=3)
+                bank, account_id, path = file
+                result = scan_functions[bank](account_id, path)
+            except queue.Empty:
+                return
+            except Exception as e:
+                result = e
 
-sogep_scan(accounts_files, con, 10)
+            self.ops_q.put([file,result])
+
+class Reception(threading.Thread):
+    def __init__(self, results_queue, files):
+        self.results_q = results_queue 
+        self.expected_files = files.copy()
+        super().__init__()
+      
+    def run(self):
+        while len(self.expected_files):
+            file, result = self.results_q.get()
+            self.expected_files.remove(file)
+        
+            if isinstance(result, Exception):
+                logging.info("error on file: '%s'" % file[2])
+                continue
+            
+            file_info,ops = result
+        
+            source_insert_sql = """INSERT INTO source_file 
+            VALUES(:date_begin, :date_end, :date_scanned, :path, :account) 
+            RETURNING rowid"""
+            (source_id,) = cur.execute(source_insert_sql, file_info).fetchone()
+            
+            ops_insert_sql = f"""INSERT INTO operation 
+            VALUES(:date, :payee, :motif, :label, :amount, :currency, NULL, {source_id})"""
+            cur.executemany(ops_insert_sql, ops)
+
+            filename = os.path.basename(file[2])
+            logging.info("%s\t> %d ops, %s files left" % (filename, len(ops), len(self.expected_files)))
+
+
+def extraction(files, n_threads=8):
+    files_queue = queue.Queue()
+    ops_queue = queue.Queue()
+  
+    for f in files:
+        files_queue.put_nowait(f)
+  
+    extractors = [ Extractor(files_queue, ops_queue) for _ in range(n_threads) ]
+    for t in extractors:
+        t.start()
+  
+    reception = Reception(ops_queue, files)
+    reception.start()
+  
+    for t in extractors:
+        t.join()
+    reception.join()
+
+    con.commit()
+    
+extraction(not_scanned_files)
 
 #------------------------------- règles custom --------------------------------
 
