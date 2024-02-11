@@ -188,55 +188,30 @@ def apply_rules(to_value, *from_values):
     
     return to_value
 
-
 con.create_function("apply_rules", -1, apply_rules)
 
-for file in os.listdir(rules_path):
-    p = os.path.join(rules_path,file)
-    if os.path.isfile(p):
-        with open(p, encoding="utf-8-sig") as csv_file:
-            csv_reader = csv.reader(csv_file, delimiter=';')
-            header = next(csv_reader)
-            n = len(header)
-            rules = []
-            
-            for line in csv_reader:
-                crits =  [tuple(line[i:i+2]) for i in range(2,n,2)]
-                rules.append((tuple(line[:2]), crits))
-            
-            field_to = header[0]
-            fields_from = ','.join(header[2::2])
-            rules_sql = f"UPDATE operation SET {field_to}=apply_rules({field_to},{fields_from})"
-            cur.execute(rules_sql)
-            con.commit()
-            
-            logging.info(f"rules applied ({file})")
-
-#--------------------------------- Catégories ---------------------------------
-# Même chose mais avec les catégories
-
-category_rules_path = os.path.join(rules_path, "categories")
-
-for file in os.listdir(category_rules_path):
-    p = os.path.join(category_rules_path,file)
-    if os.path.isfile(p):
-        with open(p, encoding="utf-8-sig") as csv_file:
-            csv_reader = csv.reader(csv_file, delimiter=';')
-            header = next(csv_reader)
-            n = len(header)
-            rules = []
-            
-            for line in csv_reader:
-                crits =  [tuple(line[i:i+2]) for i in range(2,n,2)]
-                rules.append((tuple(line[:2]), crits))
-            
-            field_to = header[0]
-            fields_from = ','.join(header[2::2])
-            rules_sql = f"UPDATE operation SET {field_to}=apply_rules({field_to},{fields_from})"
-            cur.execute(rules_sql)
-            con.commit()
-            
-            logging.info(f"categories applied ({file})")
+for root,_,files in os.walk(rules_path):
+    folder = os.path.basename(root)
+    for file in files:
+        p = os.path.join(root,file)
+        if os.path.isfile(p):
+            with open(p, encoding="utf-8-sig") as csv_file:
+                csv_reader = csv.reader(csv_file, delimiter=';')
+                header = next(csv_reader)
+                n = len(header)
+                rules = []
+                
+                for line in csv_reader:
+                    crits =  [tuple(line[i:i+2]) for i in range(2,n,2)]
+                    rules.append((tuple(line[:2]), crits))
+                
+                field_to = header[0]
+                fields_from = ','.join(header[2::2])
+                rules_sql = f"UPDATE operation SET {field_to}=apply_rules({field_to},{fields_from})"
+                cur.execute(rules_sql)
+                con.commit()
+                
+                logging.info(f"{folder} applied ({file})")
 
 # Banque/Mouvements : mouvements d'argent entre deux comptes perso
 re_ref = re.compile(r"(?m)(?:VIR RECU|REF:) (?P<ref>\d*)")
